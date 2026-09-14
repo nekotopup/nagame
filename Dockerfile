@@ -2,6 +2,7 @@ FROM alpine:3.21
 
 # ─── Install PHP + Node ───────────────────────────────────────────────────────
 RUN apk add --no-cache \
+    nginx \
     php84 php84-fpm \
     php84-bcmath \
     php84-ctype \
@@ -58,22 +59,38 @@ RUN cp .env.example .env \
     && php artisan package:discover --ansi \
     && rm .env
 
-# ─── Permissions ─────────────────────────────────────────────────────────────
-RUN chown nobody:nobody /var/www/html \
-    && chown -R nobody:nobody /var/www/html/storage /var/www/html/bootstrap/cache \
-    && chmod -R 775 /var/www/html/storage \
-    && chmod -R 775 /var/www/html/bootstrap/cache
+# ─── Nginx config (Tambahkan Baris Ini) ───────────────────────────────────────
+# Kita buat konfigurasi Nginx minimalis langsung via command agar praktis
+RUN mkdir -p /run/nginx && \
+    echo 'server { \
+        listen 80; \
+        root /var/www/html/public; \
+        index index.php index.html; \
+        location / { try_files $uri $uri/ /index.php?$query_string; } \
+        location ~ \.php$ { \
+            try_files $uri =404; \
+            fastcgi_split_path_info ^(.+\.php)(/.+)$; \
+            fastcgi_pass 127.0.0.1:9000; \
+            fastcgi_index index.php; \
+            include fastcgi_params; \
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
+            fastcgi_param PATH_INFO $fastcgi_path_info; \
+        } \
+    }' > /etc/nginx/http.d/default.conf
 
-# ─── PHP-FPM config ──────────────────────────────────────────────────────────
-COPY docker/php/php.ini     /etc/php84/conf.d/laravel.ini
-COPY docker/php/opcache.ini /etc/php84/conf.d/opcache.ini
-COPY docker/php/fpm.conf    /etc/php84/php-fpm.d/www.conf
+# ─── Permissions ─────────────────────────────────────────────────────────────
+RUN chown -R nobody:nobody /var/www/html \
+    && chown -R nobody:nobody /var/www/html/storage /var/www/html/bootstrap/cache /var/lib/nginx /var/log/nginx /run/nginx \
+    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 9000
+# Render membaca port HTTP luar, jadi buka port 80
+EXPOSE 80
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["/usr/sbin/php-fpm84", "--nodaemonize", "--fpm-config", "/etc/php84/php-fpm.conf"]
+
+# Perintah CMD diubah agar menyalakan PHP-FPM di background, lalu mengunci kontainer dengan Nginx di foreground
+CMD ["sh", "-c", "/usr/sbin/php-fpm84 --nodaemonize --fpm-config /etc/php84/php-fpm.conf & nginx -g 'daemon off;'"]
