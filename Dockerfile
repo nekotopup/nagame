@@ -59,8 +59,7 @@ RUN cp .env.example .env \
     && php artisan package:discover --ansi \
     && rm .env
 
-# ─── Nginx config (Tambahkan Baris Ini) ───────────────────────────────────────
-# Kita buat konfigurasi Nginx minimalis langsung via command agar praktis
+# ─── Nginx config (Diselaraskan ke Port 9000 TCP) ───────────────────────────────
 RUN mkdir -p /run/nginx && \
     echo 'server { \
         listen 80; \
@@ -81,16 +80,9 @@ RUN mkdir -p /run/nginx && \
 # ─── Permissions ─────────────────────────────────────────────────────────────
 RUN chown -R nobody:nobody /var/www/html \
     && chown -R nobody:nobody /var/www/html/storage /var/www/html/bootstrap/cache /var/lib/nginx /var/log/nginx /run/nginx \
-    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
+    && chmod -R 777 /var/www/html/storage /var/www/html/bootstrap/cache
 
-# ─── Entrypoint ──────────────────────────────────────────────────────────────
-COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# Render membaca port HTTP luar, jadi buka port 80
 EXPOSE 80
 
-ENTRYPOINT ["/entrypoint.sh"]
-
-# Perintah CMD diubah agar menyalakan PHP-FPM di background, lalu mengunci kontainer dengan Nginx di foreground
-CMD ["sh", "-c", "/usr/sbin/php-fpm84 --nodaemonize --fpm-config /etc/php84/php-fpm.conf & nginx -g 'daemon off;'"]
+# Kita pastikan PHP-FPM memaksa mendengarkan port 9000 secara global lewat bendera -d
+CMD ["sh", "-c", "php artisan optimize && php artisan migrate --force && /usr/sbin/php-fpm84 --nodaemonize --fpm-config /etc/php84/php-fpm.conf -d listen=127.0.0.1:9000 & nginx -g 'daemon off;'"]
